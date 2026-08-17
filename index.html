@@ -64,7 +64,19 @@
     <datalist id="dl_placas"></datalist>
     <button class="btn btn-gris" onclick="buscarVehiculo()">🔎 Buscar</button>
     <div id="buscar_msg"></div>
-    <a href="#" class="salir" onclick="cerrarSesion(); return false;">Cerrar sesión</a>
+    <div style="display:flex;justify-content:space-between">
+      <a href="#" class="salir" onclick="mostrarCambiarPassword(); return false;">🔑 Cambiar contraseña</a>
+      <a href="#" class="salir" onclick="cerrarSesion(); return false;">Cerrar sesión</a>
+    </div>
+  </div>
+
+  <!-- ============ CAMBIAR CONTRASEÑA ============ -->
+  <div class="card" id="password-card" style="display:none">
+    <label>Contraseña actual</label><input id="cp_actual" type="password">
+    <label>Contraseña nueva</label><input id="cp_nueva" type="password">
+    <button class="btn btn-entrada" onclick="confirmarCambioPassword()">💾 Guardar nueva contraseña</button>
+    <button class="btn btn-gris" onclick="document.getElementById('password-card').style.display='none';document.getElementById('buscar-card').style.display='block'">Cancelar</button>
+    <div id="cp_msg"></div>
   </div>
 
   <!-- ============ CÁMARA QR ============ -->
@@ -113,15 +125,12 @@
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script>
     // ================= CONFIGURACIÓN =================
-    let SCRIPT_URL = localStorage.getItem('enviaseo_script_url') || '';
+    // Ya viene incorporada — nadie tiene que pegar ni configurar nada
+    let SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEnBihxhGu8JLBn2Qp7Uzcegxd7nwDXQ9CZOKlDWBbkiPotQAt94G6vrHswH_1BYvOBQ/exec';
     let sesionPortero = null;
     let placaActual = '';
 
     function iniciar() {
-      if (!SCRIPT_URL) {
-        document.getElementById('config-card').style.display = 'block';
-        return;
-      }
       const guardada = localStorage.getItem('enviaseo_sesion_ext');
       if (guardada) {
         try { sesionPortero = JSON.parse(guardada); entrarAlPortero(); return; } catch (e) {}
@@ -170,6 +179,27 @@
     function cerrarSesion() {
       localStorage.removeItem('enviaseo_sesion_ext');
       location.reload();
+    }
+
+    function mostrarCambiarPassword() {
+      document.getElementById('buscar-card').style.display = 'none';
+      document.getElementById('password-card').style.display = 'block';
+      document.getElementById('cp_actual').value = '';
+      document.getElementById('cp_nueva').value = '';
+      document.getElementById('cp_msg').innerHTML = '';
+    }
+
+    function confirmarCambioPassword() {
+      const actual = document.getElementById('cp_actual').value;
+      const nueva = document.getElementById('cp_nueva').value;
+      if (!actual || !nueva) { mostrarMsg('cp_msg', 'Completa ambos campos.', false); return; }
+      llamarApi('cambiarPassword', { usuario: sesionPortero.usuario, actual: actual, nueva: nueva })
+        .then(res => {
+          if (res.ok) {
+            mostrarMsg('cp_msg', '✅ Contraseña cambiada.', true);
+            setTimeout(() => { document.getElementById('password-card').style.display = 'none'; document.getElementById('buscar-card').style.display = 'block'; }, 1200);
+          } else mostrarMsg('cp_msg', '❌ ' + res.error, false);
+        }).catch(err => mostrarMsg('cp_msg', '❌ ' + err.message, false));
     }
 
     function entrarAlPortero() {
