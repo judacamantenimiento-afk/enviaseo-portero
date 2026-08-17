@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enviaseo E.S.P. — Control de Planta (Portero)</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f5f6;margin:0;padding:20px}
+  h1{text-align:center;color:#6D6E71;font-size:19px;margin:0 0 4px}
+  .g{color:#8DC63F}
+  .card{background:#fff;border-radius:12px;padding:22px;max-width:480px;margin:20px auto;box-shadow:0 1px 6px rgba(0,0,0,.12)}
+  label{font-size:12px;font-weight:700;color:#555;display:block;margin-bottom:4px}
+  input,select{width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;margin-bottom:14px;box-sizing:border-box}
+  .btn{width:100%;padding:14px;border:none;border-radius:8px;font-weight:700;font-size:16px;cursor:pointer;color:#fff;margin-bottom:10px}
+  .btn-salida{background:#F7941E}
+  .btn-entrada{background:#8DC63F}
+  .btn-gris{background:#6D6E71}
+  .btn-mitad{width:48%;margin-bottom:0}
+  .fila-botones{display:flex;justify-content:space-between;gap:10px;margin-bottom:16px}
+  .placa-grande{font-size:30px;font-weight:800;text-align:center;color:#6D6E71;letter-spacing:2px;margin:4px 0 10px}
+  .badge{display:block;text-align:center;padding:9px;border-radius:20px;font-weight:700;margin-bottom:16px}
+  .badge-planta{background:#D5F5E3;color:#1E8449}
+  .badge-ruta{background:#FCE8B2;color:#B7950B}
+  .info-actual{background:#f8f8f8;border-radius:8px;padding:14px;margin-bottom:16px;font-size:14px;line-height:1.6}
+  .info-actual b{color:#6D6E71}
+  .msg{padding:10px;border-radius:6px;margin-top:10px;font-size:13px;text-align:center}
+  .msg-ok{background:#D5F5E3;color:#1E8449}
+  .msg-error{background:#F4C7C3;color:#C0392B}
+  .sesion-info{text-align:center;font-size:12px;color:#888;margin-bottom:14px}
+  a.salir{display:block;text-align:center;font-size:12px;color:#999;margin-top:6px}
+  h3.hist-titulo{font-size:13px;color:#6D6E71;margin:20px 0 8px;border-top:1px solid #eee;padding-top:16px}
+  table.hist{width:100%;border-collapse:collapse;font-size:11px}
+  table.hist th{background:#f0f0f0;padding:6px;text-align:left}
+  table.hist td{padding:6px;border-bottom:1px solid #eee}
+  .vacio-hist{color:#aaa;font-size:12px;text-align:center;padding:10px}
+  video{width:100%;border-radius:8px;background:#000}
+</style>
+</head>
+<body>
+  <h1>ENVI<span class="g">ASEO</span> E.S.P. — Control de Planta</h1>
+
+  <!-- ============ CONFIGURACIÓN (solo la primera vez) ============ -->
+  <div class="card" id="config-card" style="display:none">
+    <label>Pega aquí la URL de tu Apps Script (termina en /exec)</label>
+    <input id="cfg_url" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+    <button class="btn btn-gris" onclick="guardarConfig()">Guardar y continuar</button>
+    <div id="cfg_msg"></div>
+  </div>
+
+  <!-- ============ LOGIN ============ -->
+  <div class="card" id="login-card" style="display:none">
+    <label>Usuario</label><input id="li_usuario" autocomplete="username">
+    <label>Contraseña</label><input id="li_password" type="password" autocomplete="current-password">
+    <button class="btn btn-gris" onclick="iniciarSesion()">Ingresar</button>
+    <div id="li_msg"></div>
+  </div>
+
+  <!-- ============ BUSCAR VEHÍCULO ============ -->
+  <div class="card" id="buscar-card" style="display:none">
+    <div class="sesion-info" id="sesion-info"></div>
+    <button class="btn btn-salida" onclick="abrirCamara()">📷 Escanear QR del vehículo</button>
+    <label>O escribe la placa manualmente</label>
+    <input id="p_placa" list="dl_placas" autocomplete="off" placeholder="Ej: ODT823" style="text-transform:uppercase">
+    <datalist id="dl_placas"></datalist>
+    <button class="btn btn-gris" onclick="buscarVehiculo()">🔎 Buscar</button>
+    <div id="buscar_msg"></div>
+    <a href="#" class="salir" onclick="cerrarSesion(); return false;">Cerrar sesión</a>
+  </div>
+
+  <!-- ============ CÁMARA QR ============ -->
+  <div class="card" id="camara-card" style="display:none;text-align:center">
+    <video id="video" playsinline></video>
+    <canvas id="canvas" style="display:none"></canvas>
+    <div id="camara_msg" style="margin-top:10px"></div>
+    <button class="btn btn-gris" onclick="cerrarCamara()">✖️ Cancelar</button>
+  </div>
+
+  <!-- ============ ACCIÓN SOBRE EL VEHÍCULO ============ -->
+  <div class="card" id="vehiculo-card" style="display:none">
+    <div class="placa-grande" id="v_placa_txt"></div>
+    <div id="v_badge"></div>
+    <div id="v_info_actual"></div>
+
+    <div class="fila-botones">
+      <button class="btn btn-salida btn-mitad" onclick="elegirAccion('salida')">🚧 Salida</button>
+      <button class="btn btn-entrada btn-mitad" onclick="elegirAccion('entrada')">✅ Entrada</button>
+    </div>
+
+    <div id="salida-form" style="display:none">
+      <label>Kilómetros de salida</label><input id="s_km" type="number">
+      <label>Conductor</label><input id="s_conductor" list="dl_conductor" autocomplete="off">
+      <label>Tripulante 1</label><input id="s_t1" list="dl_tripulante" autocomplete="off">
+      <label>Tripulante 2</label><input id="s_t2" list="dl_tripulante" autocomplete="off">
+      <label>Tripulante 3</label><input id="s_t3" list="dl_tripulante" autocomplete="off">
+      <label>Tripulante 4</label><input id="s_t4" list="dl_tripulante" autocomplete="off">
+      <datalist id="dl_conductor"></datalist>
+      <datalist id="dl_tripulante"></datalist>
+      <button class="btn btn-salida" onclick="confirmarSalida()">🚚 Confirmar Salida</button>
+    </div>
+
+    <div id="entrada-form" style="display:none">
+      <label>Kilómetros de entrada</label><input id="e_km" type="number">
+      <button class="btn btn-entrada" onclick="confirmarEntrada()">🏠 Confirmar Entrada</button>
+    </div>
+
+    <button class="btn btn-gris" onclick="volverABuscar()">⬅️ Buscar otra placa</button>
+    <div id="accion_msg"></div>
+
+    <h3 class="hist-titulo">📋 Historial reciente de este vehículo</h3>
+    <div id="v_historial"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script>
+    // ================= CONFIGURACIÓN =================
+    let SCRIPT_URL = localStorage.getItem('enviaseo_script_url') || '';
+    let sesionPortero = null;
+    let placaActual = '';
+
+    function iniciar() {
+      if (!SCRIPT_URL) {
+        document.getElementById('config-card').style.display = 'block';
+        return;
+      }
+      const guardada = localStorage.getItem('enviaseo_sesion_ext');
+      if (guardada) {
+        try { sesionPortero = JSON.parse(guardada); entrarAlPortero(); return; } catch (e) {}
+      }
+      document.getElementById('login-card').style.display = 'block';
+    }
+
+    function guardarConfig() {
+      const url = document.getElementById('cfg_url').value.trim();
+      if (!url.endsWith('/exec')) { document.getElementById('cfg_msg').innerHTML = '<div class="msg msg-error">La URL debe terminar en /exec</div>'; return; }
+      SCRIPT_URL = url;
+      localStorage.setItem('enviaseo_script_url', url);
+      document.getElementById('config-card').style.display = 'none';
+      document.getElementById('login-card').style.display = 'block';
+    }
+
+    // ================= LLAMADAS AL BACKEND =================
+    function llamarApi(accion, extra) {
+      const cuerpo = Object.assign({ action: accion }, extra || {});
+      return fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita el preflight CORS
+        body: JSON.stringify(cuerpo)
+      }).then(r => r.json());
+    }
+
+    function mostrarMsg(id, texto, ok) {
+      document.getElementById(id).innerHTML = '<div class="msg ' + (ok ? 'msg-ok' : 'msg-error') + '">' + texto + '</div>';
+    }
+
+    // ================= SESIÓN =================
+    function iniciarSesion() {
+      const usuario = document.getElementById('li_usuario').value.trim();
+      const password = document.getElementById('li_password').value;
+      if (!usuario || !password) { mostrarMsg('li_msg', 'Ingresa usuario y contraseña.', false); return; }
+      llamarApi('login', { usuario: usuario, password: password })
+        .then(res => {
+          if (!res.ok) { mostrarMsg('li_msg', '❌ ' + res.error, false); return; }
+          sesionPortero = res.usuario;
+          localStorage.setItem('enviaseo_sesion_ext', JSON.stringify(res.usuario));
+          entrarAlPortero();
+        })
+        .catch(err => mostrarMsg('li_msg', '❌ ' + err.message, false));
+    }
+
+    function cerrarSesion() {
+      localStorage.removeItem('enviaseo_sesion_ext');
+      location.reload();
+    }
+
+    function entrarAlPortero() {
+      document.getElementById('login-card').style.display = 'none';
+      document.getElementById('buscar-card').style.display = 'block';
+      document.getElementById('sesion-info').innerText = 'Sesión: ' + sesionPortero.nombre;
+      cargarListas();
+    }
+
+    // ================= LISTAS =================
+    function cargarListas() {
+      llamarApi('listarVehiculos').then(res => {
+        document.getElementById('dl_placas').innerHTML = ((res && res.data) || []).map(v => '<option value="' + v['Placa'] + '">').join('');
+      });
+      llamarApi('listarPersonal').then(res => {
+        const list = (res && res.data) || [];
+        document.getElementById('dl_conductor').innerHTML = list.filter(p => p['Cargo'] === 'Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
+        document.getElementById('dl_tripulante').innerHTML = list.filter(p => p['Cargo'] === 'Operario/Tripulante').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
+      });
+    }
+
+    // ================= BUSCAR VEHÍCULO =================
+    function buscarVehiculo() {
+      const placa = document.getElementById('p_placa').value.trim().toUpperCase();
+      if (!placa) { mostrarMsg('buscar_msg', 'Escribe o selecciona una placa.', false); return; }
+      cargarVehiculo(placa);
+    }
+
+    function cargarVehiculo(placa) {
+      ['s_km','s_conductor','s_t1','s_t2','s_t3','s_t4','e_km'].forEach(id => { document.getElementById(id).value = ''; });
+
+      llamarApi('consultar', { placa: placa }).then(res => {
+        if (!res.ok) { mostrarMsg('buscar_msg', '❌ ' + res.error, false); return; }
+        placaActual = res.vehiculo.placa;
+        document.getElementById('buscar-card').style.display = 'none';
+        document.getElementById('vehiculo-card').style.display = 'block';
+        document.getElementById('v_placa_txt').innerText = res.vehiculo.placa;
+        document.getElementById('salida-form').style.display = 'none';
+        document.getElementById('entrada-form').style.display = 'none';
+
+        if (res.enRuta) {
+          const r = res.registroAbierto;
+          document.getElementById('v_badge').innerHTML = '<div class="badge badge-ruta">🟠 EN RUTA</div>';
+          const trip = [r['Tripulante 1'], r['Tripulante 2'], r['Tripulante 3'], r['Tripulante 4']].filter(Boolean).join(', ') || '—';
+          document.getElementById('v_info_actual').innerHTML =
+            '<div class="info-actual"><b>Salió:</b> ' + r['Fecha Salida'] + ' ' + r['Hora Salida'] + '<br><b>KM salida:</b> ' + r['KM Salida'] +
+            '<br><b>Conductor:</b> ' + (r['Conductor'] || '—') + '<br><b>Tripulación:</b> ' + trip + '</div>';
+        } else {
+          document.getElementById('v_badge').innerHTML = '<div class="badge badge-planta">🟢 EN PLANTA</div>';
+          document.getElementById('v_info_actual').innerHTML = '';
+        }
+        cargarHistorialVehiculo(placa);
+      }).catch(err => mostrarMsg('buscar_msg', '❌ ' + err.message, false));
+    }
+
+    function elegirAccion(tipo) {
+      document.getElementById('salida-form').style.display = tipo === 'salida' ? 'block' : 'none';
+      document.getElementById('entrada-form').style.display = tipo === 'entrada' ? 'block' : 'none';
+      document.getElementById('accion_msg').innerHTML = '';
+    }
+
+    function cargarHistorialVehiculo(placa) {
+      llamarApi('historial', { placa: placa }).then(res => {
+        const list = (res && res.data) || [];
+        if (!list.length) { document.getElementById('v_historial').innerHTML = '<div class="vacio-hist">Sin movimientos registrados todavía.</div>'; return; }
+        document.getElementById('v_historial').innerHTML =
+          '<table class="hist"><thead><tr><th>Salida</th><th>KM Sal.</th><th>Entrada</th><th>KM Ent.</th><th>KM Rec.</th><th>Tiempo</th></tr></thead><tbody>' +
+          list.map(r => '<tr><td>' + r['Fecha Salida'] + ' ' + r['Hora Salida'] + '</td><td>' + r['KM Salida'] + '</td>' +
+            '<td>' + (r['Hora Entrada'] ? r['Fecha Entrada'] + ' ' + r['Hora Entrada'] : '—') + '</td><td>' + (r['KM Entrada'] || '—') + '</td>' +
+            '<td>' + (r['KmRecorridos'] !== '—' ? r['KmRecorridos'] + ' km' : '—') + '</td><td>' + r['TiempoTotal'] + '</td></tr>'
+          ).join('') + '</tbody></table>';
+      }).catch(() => { document.getElementById('v_historial').innerHTML = '<div class="vacio-hist">No se pudo cargar el historial.</div>'; });
+    }
+
+    // ================= SALIDA / ENTRADA =================
+    function confirmarSalida() {
+      const data = {
+        kmSalida: document.getElementById('s_km').value,
+        conductorNombre: document.getElementById('s_conductor').value,
+        t1Nombre: document.getElementById('s_t1').value,
+        t2Nombre: document.getElementById('s_t2').value,
+        t3Nombre: document.getElementById('s_t3').value,
+        t4Nombre: document.getElementById('s_t4').value,
+        registradoPor: sesionPortero ? sesionPortero.nombre : ''
+      };
+      llamarApi('salida', { placa: placaActual, data: data }).then(res => {
+        if (res.ok) { mostrarMsg('accion_msg', '✅ Salida registrada.', true); setTimeout(volverABuscar, 1200); }
+        else mostrarMsg('accion_msg', '❌ ' + res.error, false);
+      }).catch(err => mostrarMsg('accion_msg', '❌ ' + err.message, false));
+    }
+
+    function confirmarEntrada() {
+      const data = { kmEntrada: document.getElementById('e_km').value };
+      llamarApi('entrada', { placa: placaActual, data: data }).then(res => {
+        if (res.ok) { mostrarMsg('accion_msg', '✅ Entrada registrada.', true); setTimeout(volverABuscar, 1200); }
+        else mostrarMsg('accion_msg', '❌ ' + res.error, false);
+      }).catch(err => mostrarMsg('accion_msg', '❌ ' + err.message, false));
+    }
+
+    function volverABuscar() {
+      placaActual = '';
+      document.getElementById('p_placa').value = '';
+      document.getElementById('buscar-card').style.display = 'block';
+      document.getElementById('vehiculo-card').style.display = 'none';
+      document.getElementById('buscar_msg').innerHTML = '';
+      document.getElementById('accion_msg').innerHTML = '';
+    }
+
+    // ================= CÁMARA / LECTURA DE QR (aquí SÍ funciona, sin el iframe de Apps Script) =================
+    let streamCamara = null;
+    let escaneando = false;
+
+    function abrirCamara() {
+      document.getElementById('buscar-card').style.display = 'none';
+      document.getElementById('camara-card').style.display = 'block';
+      document.getElementById('camara_msg').innerHTML = '';
+
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          streamCamara = stream;
+          const video = document.getElementById('video');
+          video.srcObject = stream;
+          video.setAttribute('playsinline', true);
+          video.play();
+          escaneando = true;
+          requestAnimationFrame(tickEscaneo);
+        })
+        .catch(err => {
+          document.getElementById('camara_msg').innerHTML = '<div class="msg msg-error">⚠️ No se pudo abrir la cámara (' + err.message + ').</div>';
+        });
+    }
+
+    function tickEscaneo() {
+      if (!escaneando) return;
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imagen = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const codigo = jsQR(imagen.data, imagen.width, imagen.height);
+        if (codigo && codigo.data) {
+          const placa = extraerPlacaDeTexto(codigo.data);
+          if (placa) { cerrarCamara(); document.getElementById('p_placa').value = placa; cargarVehiculo(placa); return; }
+        }
+      }
+      requestAnimationFrame(tickEscaneo);
+    }
+
+    function extraerPlacaDeTexto(texto) {
+      try {
+        const url = new URL(texto);
+        const p = url.searchParams.get('placa');
+        if (p) return p.trim().toUpperCase();
+      } catch (e) {}
+      return texto.trim().toUpperCase();
+    }
+
+    function cerrarCamara() {
+      escaneando = false;
+      if (streamCamara) { streamCamara.getTracks().forEach(t => t.stop()); streamCamara = null; }
+      document.getElementById('camara-card').style.display = 'none';
+      document.getElementById('buscar-card').style.display = 'block';
+    }
+
+    iniciar();
+  </script>
+</body>
+</html>
