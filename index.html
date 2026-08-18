@@ -34,6 +34,9 @@
   table.hist td{padding:6px;border-bottom:1px solid #eee}
   .vacio-hist{color:#aaa;font-size:12px;text-align:center;padding:10px}
   video{width:100%;border-radius:8px;background:#000}
+  .btn-cargando{opacity:.8;cursor:wait!important;pointer-events:none}
+  .spinner-boton{display:inline-block;animation:conduciendo-boton .7s ease-in-out infinite}
+  @keyframes conduciendo-boton{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
 </style>
 </head>
 <body>
@@ -148,13 +151,48 @@
     }
 
     // ================= LLAMADAS AL BACKEND =================
+    // ================= PREVENCIÓN DE DOBLE CLIC EN TODOS LOS BOTONES =================
+    let llamadasEnCurso = 0;
+    let botonActivo = null;
+
+    function restaurarBoton() {
+      if (!botonActivo) return;
+      botonActivo.disabled = false;
+      botonActivo.classList.remove('btn-cargando');
+      if (botonActivo.dataset.textoOriginal !== undefined) botonActivo.innerHTML = botonActivo.dataset.textoOriginal;
+      botonActivo = null;
+    }
+
+    document.addEventListener('click', function(e) {
+      const btn = e.target.closest('button[onclick]');
+      if (!btn) return;
+      if (btn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      btn.dataset.textoOriginal = btn.innerHTML;
+      btn.disabled = true;
+      botonActivo = btn;
+      setTimeout(function() {
+        if (botonActivo !== btn) return;
+        if (llamadasEnCurso > 0) {
+          btn.classList.add('btn-cargando');
+          btn.innerHTML = '<span class="spinner-boton">🚛</span>';
+        } else {
+          restaurarBoton();
+        }
+      }, 60);
+      setTimeout(function() { if (botonActivo === btn) restaurarBoton(); }, 10000);
+    }, true);
+
     function llamarApi(accion, extra) {
       const cuerpo = Object.assign({ action: accion }, extra || {});
+      llamadasEnCurso++;
       return fetch(SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita el preflight CORS
         body: JSON.stringify(cuerpo)
-      }).then(r => r.json());
+      }).then(r => r.json()).finally(function() {
+        llamadasEnCurso = Math.max(0, llamadasEnCurso - 1);
+        if (llamadasEnCurso === 0) restaurarBoton();
+      });
     }
 
     function mostrarMsg(id, texto, ok) {
@@ -316,6 +354,7 @@
       document.getElementById('buscar-card').style.display = 'none';
       document.getElementById('camara-card').style.display = 'block';
       document.getElementById('camara_msg').innerHTML = '';
+      restaurarBoton(); // esta acción no pasa por llamarApi, se libera de una vez
 
       navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
         .then(stream => {
