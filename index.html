@@ -153,33 +153,38 @@
     // ================= LLAMADAS AL BACKEND =================
     // ================= PREVENCIÓN DE DOBLE CLIC EN TODOS LOS BOTONES =================
     let llamadasEnCurso = 0;
-    let botonActivo = null;
+    const botonesActivos = new Set();
 
-    function restaurarBoton() {
-      if (!botonActivo) return;
-      botonActivo.disabled = false;
-      botonActivo.classList.remove('btn-cargando');
-      if (botonActivo.dataset.textoOriginal !== undefined) botonActivo.innerHTML = botonActivo.dataset.textoOriginal;
-      botonActivo = null;
+    function restaurarBoton(btn) {
+      if (!btn || !botonesActivos.has(btn)) return;
+      btn.disabled = false;
+      btn.classList.remove('btn-cargando');
+      if (btn.dataset.textoOriginal !== undefined) btn.innerHTML = btn.dataset.textoOriginal;
+      botonesActivos.delete(btn);
+    }
+
+    function restaurarTodosLosBotones() {
+      Array.from(botonesActivos).forEach(restaurarBoton);
     }
 
     document.addEventListener('click', function(e) {
       const btn = e.target.closest('button[onclick]');
       if (!btn) return;
       if (btn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      const llamadasAlIniciar = llamadasEnCurso;
       btn.dataset.textoOriginal = btn.innerHTML;
       btn.disabled = true;
-      botonActivo = btn;
+      botonesActivos.add(btn);
       setTimeout(function() {
-        if (botonActivo !== btn) return;
-        if (llamadasEnCurso > 0) {
+        if (!botonesActivos.has(btn)) return;
+        if (llamadasEnCurso > llamadasAlIniciar) {
           btn.classList.add('btn-cargando');
           btn.innerHTML = '<span class="spinner-boton">🚛</span>';
         } else {
-          restaurarBoton();
+          restaurarBoton(btn);
         }
       }, 60);
-      setTimeout(function() { if (botonActivo === btn) restaurarBoton(); }, 10000);
+      setTimeout(function() { restaurarBoton(btn); }, 10000);
     }, true);
 
     function llamarApi(accion, extra) {
@@ -191,7 +196,7 @@
         body: JSON.stringify(cuerpo)
       }).then(r => r.json()).finally(function() {
         llamadasEnCurso = Math.max(0, llamadasEnCurso - 1);
-        if (llamadasEnCurso === 0) restaurarBoton();
+        if (llamadasEnCurso === 0) restaurarTodosLosBotones();
       });
     }
 
