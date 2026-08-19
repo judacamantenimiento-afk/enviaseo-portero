@@ -254,8 +254,8 @@
       });
       llamarApi('listarPersonal').then(res => {
         const list = (res && res.data) || [];
-        document.getElementById('dl_conductor').innerHTML = list.filter(p => p['Cargo'] === 'Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
-        document.getElementById('dl_tripulante').innerHTML = list.filter(p => p['Cargo'] === 'Operario/Tripulante').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
+        document.getElementById('dl_conductor').innerHTML = list.filter(p => p['Cargo'] === 'Conductor' || p['Cargo'] === 'Operario/Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
+        document.getElementById('dl_tripulante').innerHTML = list.filter(p => p['Cargo'] === 'Operario/Tripulante' || p['Cargo'] === 'Operario/Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
       });
     }
 
