@@ -96,13 +96,19 @@
     <div id="v_badge"></div>
     <div id="v_info_actual"></div>
 
-    <div class="fila-botones">
+    <div class="fila-botones" id="fila-elegir-accion">
       <button class="btn btn-salida btn-mitad" onclick="elegirAccion('salida')">🚧 Salida</button>
       <button class="btn btn-entrada btn-mitad" onclick="elegirAccion('entrada')">✅ Entrada</button>
     </div>
 
     <div id="salida-form" style="display:none">
-      <label>Kilómetros de salida</label><input id="s_km" type="number">
+      <div id="s_asignacion_encontrada" style="display:none;background:#EAF6D8;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px">
+        <b>📋 Se encontró la asignación planeada de hoy:</b>
+        <div id="s_asignacion_lista" style="margin-top:8px"></div>
+      </div>
+      <label>Kilómetros de salida (verifica el odómetro)</label><input id="s_km" type="number" inputmode="numeric" pattern="[0-9]*">
+      <label>Ruta</label><input id="s_ruta" list="dl_ruta_portero" autocomplete="off" placeholder="Ruta que va a hacer">
+      <datalist id="dl_ruta_portero"></datalist>
       <label>Conductor</label><input id="s_conductor" list="dl_conductor" autocomplete="off">
       <label>Tripulante 1</label><input id="s_t1" list="dl_tripulante" autocomplete="off">
       <label>Tripulante 2</label><input id="s_t2" list="dl_tripulante" autocomplete="off">
@@ -114,7 +120,8 @@
     </div>
 
     <div id="entrada-form" style="display:none">
-      <label>Kilómetros de entrada</label><input id="e_km" type="number">
+      <div class="info-actual" id="e_info_salida" style="margin-bottom:10px"></div>
+      <label>Kilómetros de entrada</label><input id="e_km" type="number" inputmode="numeric" pattern="[0-9]*">
       <button class="btn btn-entrada" onclick="confirmarEntrada()">🏠 Confirmar Entrada</button>
     </div>
 
@@ -132,6 +139,11 @@
     let SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEnBihxhGu8JLBn2Qp7Uzcegxd7nwDXQ9CZOKlDWBbkiPotQAt94G6vrHswH_1BYvOBQ/exec';
     let sesionPortero = null;
     let placaActual = '';
+
+    // Si el QR trae ?placa=X&modo=salida (o entrada) directo en la URL de esta app, se toma de una vez
+    const parametrosUrl = new URLSearchParams(window.location.search);
+    const placaInicial = (parametrosUrl.get('placa') || '').trim().toUpperCase();
+    let modoInicial = (parametrosUrl.get('modo') || '').trim().toLowerCase();
 
     function iniciar() {
       const guardada = localStorage.getItem('enviaseo_sesion_ext');
@@ -250,6 +262,10 @@
       document.getElementById('buscar-card').style.display = 'block';
       document.getElementById('sesion-info').innerText = 'Sesión: ' + sesionPortero.nombre;
       cargarListas();
+      if (placaInicial) {
+        document.getElementById('p_placa').value = placaInicial;
+        cargarVehiculo(placaInicial);
+      }
     }
 
     // ================= LISTAS =================
@@ -262,17 +278,23 @@
         document.getElementById('dl_conductor').innerHTML = list.filter(p => p['Cargo'] === 'Conductor' || p['Cargo'] === 'Operario/Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
         document.getElementById('dl_tripulante').innerHTML = list.filter(p => p['Cargo'] === 'Operario/Tripulante' || p['Cargo'] === 'Operario/Conductor').map(p => '<option value="' + p['Nombre Completo'] + '">').join('');
       });
+      llamarApi('listarRutasCatalogo').then(res => {
+        document.getElementById('dl_ruta_portero').innerHTML = ((res && res.data) || []).map(n => '<option value="' + n + '">').join('');
+      });
     }
 
     // ================= BUSCAR VEHÍCULO =================
     function buscarVehiculo() {
       const placa = document.getElementById('p_placa').value.trim().toUpperCase();
       if (!placa) { mostrarMsg('buscar_msg', 'Escribe o selecciona una placa.', false); return; }
+      modoInicial = ''; // búsqueda manual: se muestran ambos botones
       cargarVehiculo(placa);
     }
 
     function cargarVehiculo(placa) {
-      ['s_km','s_conductor','s_t1','s_t2','s_t3','s_t4','e_km'].forEach(id => { document.getElementById(id).value = ''; });
+      ['s_km','s_ruta','s_conductor','s_t1','s_t2','s_t3','s_t4','e_km'].forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('s_asignacion_encontrada').style.display = 'none';
+      asignacionesEncontradas = [];
 
       llamarApi('consultar', { placa: placa }).then(res => {
         if (!res.ok) { mostrarMsg('buscar_msg', '❌ ' + res.error, false); return; }
@@ -289,19 +311,75 @@
           const trip = [r['Tripulante 1'], r['Tripulante 2'], r['Tripulante 3'], r['Tripulante 4']].filter(Boolean).join(', ') || '—';
           document.getElementById('v_info_actual').innerHTML =
             '<div class="info-actual"><b>Salió:</b> ' + r['Fecha Salida'] + ' ' + r['Hora Salida'] + '<br><b>KM salida:</b> ' + r['KM Salida'] +
+            (r['Ruta'] ? ('<br><b>Ruta:</b> ' + r['Ruta']) : '') +
             '<br><b>Conductor:</b> ' + (r['Conductor'] || '—') + '<br><b>Tripulación:</b> ' + trip + '</div>';
+          document.getElementById('e_info_salida').innerHTML =
+            '<b>Salió:</b> ' + r['Fecha Salida'] + ' ' + r['Hora Salida'] + ' — <b>KM con que salió:</b> ' + r['KM Salida'];
         } else {
           document.getElementById('v_badge').innerHTML = '<div class="badge badge-planta">🟢 EN PLANTA</div>';
           document.getElementById('v_info_actual').innerHTML = '';
+          if (res.kmSugerido) document.getElementById('s_km').value = res.kmSugerido;
         }
         cargarHistorialVehiculo(placa);
+
+        // Si se escaneó específicamente el QR de Salida o el de Entrada, se va directo a ESE
+        // formulario sin mostrar los botones de elegir. Si el QR no aplica al estado real
+        // del vehículo, se avisa claro en vez de no mostrar nada.
+        document.getElementById('fila-elegir-accion').style.display = 'flex';
+        document.getElementById('accion_msg').innerHTML = '';
+        if (modoInicial === 'salida') {
+          if (res.enRuta) {
+            mostrarMsg('accion_msg', '⚠️ Este vehículo ya está EN RUTA — no puede volver a salir. Escanea el QR de Entrada cuando regrese.', false);
+          } else {
+            document.getElementById('fila-elegir-accion').style.display = 'none';
+            elegirAccion('salida');
+          }
+        } else if (modoInicial === 'entrada') {
+          if (!res.enRuta) {
+            mostrarMsg('accion_msg', '⚠️ Este vehículo está EN PLANTA — no tiene ninguna salida activa para registrar su entrada.', false);
+          } else {
+            document.getElementById('fila-elegir-accion').style.display = 'none';
+            elegirAccion('entrada');
+          }
+        }
       }).catch(err => mostrarMsg('buscar_msg', '❌ ' + err.message, false));
+    }
+
+    let asignacionesEncontradas = [];
+
+    function buscarAsignacionPlaneada() {
+      document.getElementById('s_asignacion_encontrada').style.display = 'none';
+      llamarApi('buscarAsignacion', { placa: placaActual }).then(res => {
+        asignacionesEncontradas = (res && res.data) || [];
+        if (!asignacionesEncontradas.length) return;
+        document.getElementById('s_asignacion_encontrada').style.display = 'block';
+        document.getElementById('s_asignacion_lista').innerHTML = asignacionesEncontradas.map((a, i) =>
+          '<div style="padding:8px 0;' + (i > 0 ? 'border-top:1px solid #d0e8b0' : '') + '">' +
+            '<b>' + a.tipo + ' — ' + a.ruta + '</b> (' + a.horario + ')<br>' +
+            '<span style="font-size:12px;color:#555">Conductor: ' + (a.conductor || '—') + '</span>' +
+            '<button type="button" class="btn btn-sm" style="background:#8DC63F;color:#fff;margin-top:6px;padding:6px 12px;width:auto" onclick="usarAsignacion(' + i + ')">✅ Usar esta</button>' +
+          '</div>'
+        ).join('');
+        if (asignacionesEncontradas.length === 1) usarAsignacion(0);
+      }).catch(() => {}); // si falla, el portero llena todo a mano sin bloquear
+    }
+
+    function usarAsignacion(indice) {
+      const a = asignacionesEncontradas[indice];
+      if (!a) return;
+      document.getElementById('s_ruta').value = a.ruta;
+      document.getElementById('s_conductor').value = a.conductor;
+      document.getElementById('s_t1').value = a.t1;
+      document.getElementById('s_t2').value = a.t2;
+      document.getElementById('s_t3').value = a.t3;
+      document.getElementById('s_t4').value = a.t4;
     }
 
     function elegirAccion(tipo) {
       document.getElementById('salida-form').style.display = tipo === 'salida' ? 'block' : 'none';
       document.getElementById('entrada-form').style.display = tipo === 'entrada' ? 'block' : 'none';
       document.getElementById('accion_msg').innerHTML = '';
+      if (tipo === 'salida') buscarAsignacionPlaneada();
     }
 
     function cargarHistorialVehiculo(placa) {
@@ -321,6 +399,7 @@
     function confirmarSalida() {
       const data = {
         kmSalida: document.getElementById('s_km').value,
+        ruta: document.getElementById('s_ruta').value,
         conductorNombre: document.getElementById('s_conductor').value,
         t1Nombre: document.getElementById('s_t1').value,
         t2Nombre: document.getElementById('s_t2').value,
@@ -329,8 +408,11 @@
         registradoPor: sesionPortero ? sesionPortero.nombre : ''
       };
       llamarApi('salida', { placa: placaActual, data: data }).then(res => {
-        if (res.ok) { mostrarMsg('accion_msg', '✅ Salida registrada.', true); setTimeout(volverABuscar, 1200); }
-        else mostrarMsg('accion_msg', '❌ ' + res.error, false);
+        if (res.ok) {
+          mostrarMsg('accion_msg', '✅ Salida registrada.', true);
+          if (data.ruta) llamarApi('asignarRuta', { ruta: data.ruta, placa: placaActual }).catch(() => {});
+          setTimeout(volverABuscar, 1200);
+        } else mostrarMsg('accion_msg', '❌ ' + res.error, false);
       }).catch(err => mostrarMsg('accion_msg', '❌ ' + err.message, false));
     }
 
@@ -344,6 +426,7 @@
 
     function volverABuscar() {
       placaActual = '';
+      modoInicial = '';
       document.getElementById('p_placa').value = '';
       document.getElementById('buscar-card').style.display = 'block';
       document.getElementById('vehiculo-card').style.display = 'none';
@@ -389,10 +472,24 @@
         const codigo = jsQR(imagen.data, imagen.width, imagen.height);
         if (codigo && codigo.data) {
           const placa = extraerPlacaDeTexto(codigo.data);
-          if (placa) { cerrarCamara(); document.getElementById('p_placa').value = placa; cargarVehiculo(placa); return; }
+          if (placa) {
+            const modoLeido = extraerModoDeTexto(codigo.data);
+            if (modoLeido) modoInicial = modoLeido;
+            cerrarCamara();
+            document.getElementById('p_placa').value = placa;
+            cargarVehiculo(placa);
+            return;
+          }
         }
       }
       requestAnimationFrame(tickEscaneo);
+    }
+
+    function extraerModoDeTexto(texto) {
+      try {
+        const url = new URL(texto);
+        return (url.searchParams.get('modo') || '').trim().toLowerCase();
+      } catch (e) { return ''; }
     }
 
     function extraerPlacaDeTexto(texto) {
