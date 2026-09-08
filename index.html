@@ -123,6 +123,38 @@
       <div class="info-actual" id="e_info_salida" style="margin-bottom:10px"></div>
       <label>Kilómetros de entrada</label><input id="e_km" type="number" inputmode="numeric" pattern="[0-9]*">
       <button class="btn btn-entrada" onclick="confirmarEntrada()">🏠 Confirmar Entrada</button>
+
+      <div style="margin-top:18px;border-top:1px solid #eee;padding-top:14px">
+        <label>🧾 Recibo del Relleno Sanitario La Pradera (opcional)</label>
+        <button type="button" class="btn btn-gris" onclick="abrirCamaraRecibo()">📷 Escanear recibo</button>
+        <div id="recibo_msg"></div>
+
+        <div id="recibo-campos" style="display:none;margin-top:10px">
+          <img id="recibo_preview" style="width:100%;border-radius:8px;margin-bottom:10px">
+          <label>N° Tiquete</label><input id="r_tiquete">
+          <label>Placa (según el recibo)</label><input id="r_placa">
+          <label>F. Ingreso</label><input id="r_fingreso" placeholder="dd-mm-aaaa">
+          <label>Hora Ingreso</label><input id="r_hingreso" placeholder="hh:mm:ss">
+          <label>P. Entrada (Kg)</label><input id="r_pentrada">
+          <label>F. Salida</label><input id="r_fsalida" placeholder="dd-mm-aaaa">
+          <label>Hora Salida</label><input id="r_hsalida" placeholder="hh:mm:ss">
+          <label>P. Salida (Kg)</label><input id="r_psalida">
+          <label>Depósito (Kg)</label><input id="r_deposito">
+          <label>Residuo</label><input id="r_residuo">
+          <label>Sitio</label><input id="r_sitio">
+          <button class="btn btn-entrada" onclick="guardarRecibo()">💾 Guardar recibo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ CÁMARA DEL RECIBO ============ -->
+    <div class="card" id="camara-recibo-card" style="display:none;text-align:center">
+      <p style="font-size:13px;color:#666">Enfoca el tiquete completo, con buena luz, sin sombras encima del texto.</p>
+      <video id="video-recibo" playsinline></video>
+      <canvas id="canvas-recibo" style="display:none"></canvas>
+      <button class="btn btn-entrada" onclick="capturarRecibo()">📸 Capturar</button>
+      <button class="btn btn-gris" onclick="cerrarCamaraRecibo()">✖️ Cancelar</button>
+      <div id="camara_recibo_msg" style="margin-top:10px"></div>
     </div>
 
     <button class="btn btn-gris" onclick="volverABuscar()">⬅️ Buscar otra placa</button>
@@ -422,6 +454,90 @@
         if (res.ok) { mostrarMsg('accion_msg', '✅ Entrada registrada.', true); setTimeout(volverABuscar, 1200); }
         else mostrarMsg('accion_msg', '❌ ' + res.error, false);
       }).catch(err => mostrarMsg('accion_msg', '❌ ' + err.message, false));
+    }
+
+    // ================= RECIBO DE PRADERA (foto + OCR) =================
+    let streamCamaraRecibo = null;
+    let fotoReciboBase64 = null;
+    let fotoReciboMimeType = null;
+
+    function abrirCamaraRecibo() {
+      document.getElementById('camara-recibo-card').style.display = 'block';
+      document.getElementById('camara_recibo_msg').innerHTML = '';
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          streamCamaraRecibo = stream;
+          const video = document.getElementById('video-recibo');
+          video.srcObject = stream;
+          video.setAttribute('playsinline', true);
+          video.play();
+        })
+        .catch(err => {
+          document.getElementById('camara_recibo_msg').innerHTML = '<div class="msg msg-error">⚠️ No se pudo abrir la cámara (' + err.message + ').</div>';
+        });
+    }
+
+    function cerrarCamaraRecibo() {
+      if (streamCamaraRecibo) { streamCamaraRecibo.getTracks().forEach(t => t.stop()); streamCamaraRecibo = null; }
+      document.getElementById('camara-recibo-card').style.display = 'none';
+    }
+
+    function capturarRecibo() {
+      const video = document.getElementById('video-recibo');
+      const canvas = document.getElementById('canvas-recibo');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      fotoReciboBase64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      fotoReciboMimeType = 'image/jpeg';
+      cerrarCamaraRecibo();
+
+      document.getElementById('recibo_msg').innerHTML = '<div class="msg msg-ok">⏳ Leyendo el recibo, un momento...</div>';
+      llamarApi('leerRecibo', { data: { base64: fotoReciboBase64, mimeType: fotoReciboMimeType, filename: 'recibo_' + Date.now() + '.jpg' } })
+        .then(res => {
+          if (!res.ok) { mostrarMsg('recibo_msg', '❌ ' + res.error, false); return; }
+          document.getElementById('recibo_msg').innerHTML = '<div class="msg msg-ok">✅ Recibo leído — revisa que los datos estén correctos antes de guardar.</div>';
+          document.getElementById('recibo-campos').style.display = 'block';
+          document.getElementById('recibo_preview').src = res.fotoUrl;
+          document.getElementById('recibo_preview').dataset.url = res.fotoUrl;
+          const c = res.campos;
+          document.getElementById('r_tiquete').value = c.nroTiquete || '';
+          document.getElementById('r_placa').value = c.placa || placaActual;
+          document.getElementById('r_fingreso').value = c.fIngreso || '';
+          document.getElementById('r_hingreso').value = c.horaIngreso || '';
+          document.getElementById('r_pentrada').value = c.pEntrada || '';
+          document.getElementById('r_fsalida').value = c.fSalida || '';
+          document.getElementById('r_hsalida').value = c.horaSalida || '';
+          document.getElementById('r_psalida').value = c.pSalida || '';
+          document.getElementById('r_deposito').value = c.deposito || '';
+          document.getElementById('r_residuo').value = c.residuo || '';
+          document.getElementById('r_sitio').value = c.sitio || '';
+        })
+        .catch(err => mostrarMsg('recibo_msg', '❌ ' + err.message, false));
+    }
+
+    function guardarRecibo() {
+      const data = {
+        placa: document.getElementById('r_placa').value,
+        nroTiquete: document.getElementById('r_tiquete').value,
+        fIngreso: document.getElementById('r_fingreso').value,
+        horaIngreso: document.getElementById('r_hingreso').value,
+        pEntrada: document.getElementById('r_pentrada').value,
+        fSalida: document.getElementById('r_fsalida').value,
+        horaSalida: document.getElementById('r_hsalida').value,
+        pSalida: document.getElementById('r_psalida').value,
+        deposito: document.getElementById('r_deposito').value,
+        residuo: document.getElementById('r_residuo').value,
+        sitio: document.getElementById('r_sitio').value,
+        fotoUrl: document.getElementById('recibo_preview').dataset.url || '',
+        registradoPor: sesionPortero ? sesionPortero.nombre : ''
+      };
+      llamarApi('guardarRecibo', { data: data }).then(res => {
+        if (res.ok) {
+          mostrarMsg('recibo_msg', '✅ Recibo guardado.', true);
+          document.getElementById('recibo-campos').style.display = 'none';
+        } else mostrarMsg('recibo_msg', '❌ ' + res.error, false);
+      }).catch(err => mostrarMsg('recibo_msg', '❌ ' + err.message, false));
     }
 
     function volverABuscar() {
